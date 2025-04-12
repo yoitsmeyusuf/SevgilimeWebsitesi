@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>DOGUM GUNUN KUTLU OLSUN</title>
+  <!-- Basit pixel temasına uygun font kullanabilirsiniz. Örneğin Google Fonts'tan "Press Start 2P" -->
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      font-family: 'Press Start 2P', cursive;
+      color: #fff;
+      overflow: hidden;
+      touch-action: none; /* Mobil cihazlarda varsayılan dokunma davranışlarını engelle */
+      position: fixed;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* Mobil cihazlar için özel stillendirmeler */
+    @media (max-width: 768px) {
+      .intro-text {
+        font-size: 16px !important;
+      }
+    }
+    /* Parmak ile dokunma geri bildirimi */
+    .touch-feedback {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      background: rgba(255, 255, 255, 0.3);
+      transform: translate(-50%, -50%);
+      animation: touch-ripple 0.5s ease-out;
+    }
+    @keyframes touch-ripple {
+      0% { width: 0px; height: 0px; opacity: 1; }
+      100% { width: 50px; height: 50px; opacity: 0; }
+    }
+  </style>
+  <!-- p5.js kütüphanesini ekliyoruz -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+</head>
+<body>
+  <script>
+    /* 
+      Bu örnekte iki bölüm olacak:
+      1. Intro: Pixel kalp ve mesaj
+      2. Ana ekran: Rastgele yürüyen piksel karakterler ve etkileşim animasyonu
+    */
+
+    let showIntro = true;
+    let introTimer = 180; // yaklaşık 6 saniye (30 fps varsayıldığında)
+    let characters = [];  // piksel karakter nesneleri için dizi
+    let kissAnimations = []; // Öpüşme animasyonlarını saklamak için
+    
+    // Asset değişkenleri
+    let boySprites = []; // Erkek yürüme animasyonu için
+    let girlSprites = []; // Kız yürüme animasyonu için
+    let heartImages = [];
+    let backgroundImg;
+
+    function preload() {
+      try {
+        // Erkek karakter için yürüme animasyonu kareleri (4 kare)
+        for (let i = 1; i <= 4; i++) {
+          let boyImg = loadImage(`assets/boy${i}.png`);
+          boySprites.push(boyImg);
+        }
+        
+        // Kız karakter için yürüme animasyonu kareleri (4 kare)
+        for (let i = 1; i <= 4; i++) {
+          let girlImg = loadImage(`assets/girl${i}.png`);
+          girlSprites.push(girlImg);
+        }
+        
+        // Eğer animasyon kareleri yüklenemezse, varsayılan resimler yükle
+        if (boySprites.length === 0) boySprites.push(loadImage('assets/boy.png'));
+        if (girlSprites.length === 0) girlSprites.push(loadImage('assets/Girl.png')); // This was loading into boySprites array by mistake
+        
+        // Kalp animasyonu için görseller - Yükleme yöntemini geliştir
+        heartImages = [];
+        let kissImg = loadImage('assets/Kissing.png', 
+          // Başarılı yükleme callback'i
+          img => {
+            console.log("Heart image loaded successfully");
+            heartImages.push(img);
+          },
+          // Hata callback'i
+          err => console.error("Failed to load heart image:", err)
+        );
+        
+        // Arka plan görseli
+        backgroundImg = loadImage('assets/background.png');
+        
+        console.log("Sprites loaded - Boy: " + boySprites.length + ", Girl: " + girlSprites.length);
+      } catch (e) {
+        console.error("Error loading images:", e);
+      }
+    }
+
+    // Arka plan için değişkenler
+    let bgWidth, bgHeight, bgX, bgY;
+    
+    // 10 saniye sonra buluşma modu için sayaç
+    let meetingTimer = 0;
+    let shouldMeet = false;
+
+    function setup() {
+      // Canvas boyutunu buradan ayarlayabilirsiniz (şu an tam pencere boyutu)
+      createCanvas(windowWidth, windowHeight);
+      frameRate(30);
+      
+      // Arka plan için responsive boyutları hesapla
+      calculateResponsiveBackground();
+      
+      // Sadece iki karakter oluştur - erkek ve kız
+      // Erkek karakter
+      let boy = new PixelCharacter(width/2 - 150, height/2, 'boy');
+      boy.size = 128; // Daha büyük karakter boyutu
+      
+      // Kız karakter
+      let girl = new PixelCharacter(width/2 + 150, height/2, 'girl');
+      girl.size = 128; // Daha büyük karakter boyutu
+      
+      // Karakterleri diziye ekle
+      characters.push(boy);
+      characters.push(girl);
+    }
+
+    // Arka plan boyutlarını hesapla (responsive)
+    function calculateResponsiveBackground() {
+      if (!backgroundImg) return;
+      
+      // Görüntü oranlarını hesapla
+      let imgRatio = backgroundImg.width / backgroundImg.height;
+      let screenRatio = width / height;
+      
+      if (screenRatio > imgRatio) {
+        // Ekran görüntüden daha geniş, genişliği sığdır
+        bgWidth = width;
+        bgHeight = width / imgRatio;
+        bgX = 0;
+        bgY = (height - bgHeight) / 2; // Dikey ortalama
+      } else {
+        // Ekran görüntüden daha dar, yüksekliği sığdır
+        bgHeight = height;
+        bgWidth = height * imgRatio;
+        bgX = (width - bgWidth) / 2; // Yatay ortalama
+        bgY = 0;
+      }
+    }
+
+    function draw() {
+      // Responsive arka plan görselini çiz
+      if (backgroundImg) {
+        image(backgroundImg, bgX, bgY, bgWidth, bgHeight);
+      } else {
+        background(0);
+      }
+      
+      if (showIntro) {
+        drawIntro();
+        introTimer--;
+        if (introTimer < 0) {
+          showIntro = false;
+        }
+      } else {
+        // Intro bittikten sonra buluşma sayacını başlat
+        meetingTimer++;
+        
+        // 10 saniye sonra (30fps * 10 = 300 kare)
+        if (meetingTimer >= 300 && !shouldMeet) {
+          shouldMeet = true;
+          // Karakterlerin merkeze doğru gitmesini sağla
+          characters.forEach(char => {
+            char.startMeeting();
+          });
+        }
+        
+        // Karakterleri güncelle ve çiz
+        for (let character of characters) {
+          character.update();
+          character.display();
+        }
+        
+        // Karakter etkileşimlerini kontrol et (öpüşme animasyonu)
+        checkCharacterInteractions();
+      }
+    }
+
+    // Intro kısmı: Pixel kalp ve mesaj
+    function drawIntro() {
+      // Sadece büyük pixel kalp - üst kısımda
+      drawBirthdayHeart();
+      
+      // Ortadaki kırmızı kalp kaldırıldı
+    }
+    
+    // Doğum günü kalbi çizimi
+    function drawBirthdayHeart() {
+      // Kalp boyutunu artırıp, konumunu ekranın ortasına taşı
+      let heartSize = min(width, height) / 2.5; // Daha büyük boyut
+      let x = width / 2 - heartSize / 2;
+      let y = height / 2 - heartSize / 2; // Tam ekranın ortasına
+      
+      // Daha detaylı pixel kalp (16x16 grid)
+      noStroke();
+      fill(255, 20, 100); // Pembe kalp
+      
+      // Kalp şekli (pixel art)
+      const heartPattern = [
+        "0000111001110000",
+        "0011111111111100",
+        "0111111111111110",
+        "1111111111111111",
+        "1111111111111111",
+        "1111111111111111",
+        "0111111111111110",
+        "0011111111111100",
+        "0001111111111000",
+        "0000111111110000",
+        "0000011111100000",
+        "0000001111000000",
+        "0000000110000000"
+      ];
+      
+      let cellSize = heartSize / heartPattern[0].length;
+      
+      // Kalbi çiz - daha büyük piksel hücreleriyle
+      for (let j = 0; j < heartPattern.length; j++) {
+        for (let i = 0; i < heartPattern[j].length; i++) {
+          if (heartPattern[j][i] === '1') {
+            // Piksel görünümünü vurgulamak için küçük boşluklar bırak
+            rect(x + i * cellSize, y + j * cellSize, cellSize * 0.95, cellSize * 0.95);
+          }
+        }
+      }
+      
+      // Doğum günü mesajı - pixel font ile
+      let pixelSize = width < 768 ? 3 : 4; // Pixel boyutu (mobil için daha küçük)
+      let spacing = pixelSize * 6; // Harfler arası boşluk
+      let lineHeight = pixelSize * 10; // Satır yüksekliği
+      
+      // Mesaj dizileri
+      let line1 = "EYLUL DOGUM GUNUN";
+      let line2 = "KUTLU OLSUN";
+      
+      // Metni kalbin merkezine yerleştir
+      let textY = y + (heartPattern.length * cellSize) / 2;
+      
+      // İlk satırı çiz
+      let startX1 = width/2 - (line1.length * spacing) / 2;
+      drawPixelText(line1, startX1, textY - lineHeight, pixelSize, spacing);
+      
+      // İkinci satırı çiz
+      let startX2 = width/2 - (line2.length * spacing) / 2;
+      drawPixelText(line2, startX2, textY + lineHeight/2, pixelSize, spacing);
+    }
+    
+    // Pixel tarzında yazı fonksiyonu
+    function drawPixelText(text, x, y, pixelSize, spacing) {
+      // Harf ve karakter pixel desenleri
+      const pixelChars = {
+        'A': [
+          "0110",
+          "1001",
+          "1001",
+          "1111",
+          "1001"
+        ],
+        'B': [
+          "1110",
+          "1001",
+          "1110",
+          "1001",
+          "1110"
+        ],
+        'C': [
+          "0111",
+          "1000",
+          "1000",
+          "1000",
+          "0111"
+        ],
+        'D': [
+          "1110",
+          "1001",
+          "1001",
+          "1001",
+          "1110"
+        ],
+        'E': [
+          "1111",
+          "1000",
+          "1110",
+          "1000",
+          "1111"
+        ],
+        'F': [
+          "1111",
+          "1000",
+          "1110",
+          "1000",
+          "1000"
+        ],
+        'G': [
+          "0111",
+          "1000",
+          "1011",
+          "1001",
+          "0111"
+        ],
+        'H': [
+          "1001",
+          "1001",
+          "1111",
+          "1001",
+          "1001"
+        ],
+        'I': [
+          "1111",
+          "0110",
+          "0110",
+          "0110",
+          "1111"
+        ],
+        'K': [
+          "1001",
+          "1010",
+          "1100",
+          "1010",
+          "1001"
+        ],
+        'L': [
+          "1000",
+          "1000",
+          "1000",
+          "1000",
+          "1111"
+        ],
+        'M': [
+          "1001",
+          "1111",
+          "1111",
+          "1001",
+          "1001"
+        ],
+        'N': [
+          "1001",
+          "1101",
+          "1011",
+          "1001",
+          "1001"
+        ],
+        'O': [
+          "0110",
+          "1001",
+          "1001",
+          "1001",
+          "0110"
+        ],
+        'P': [
+          "1110",
+          "1001",
+          "1110",
+          "1000",
+          "1000"
+        ],
+        'R': [
+          "1110",
+          "1001",
+          "1110",
+          "1010",
+          "1001"
+        ],
+        'S': [
+          "0111",
+          "1000",
+          "0110",
+          "0001",
+          "1110"
+        ],
+        'T': [
+          "1111",
+          "0110",
+          "0110",
+          "0110",
+          "0110"
+        ],
+        'U': [
+          "1001",
+          "1001",
+          "1001",
+          "1001",
+          "0110"
+        ],
+        'Y': [
+          "1001",
+          "1001",
+          "0110",
+          "0110",
+          "0110"
+        ],
+        'Z': [
+          "1111",
+          "0001",
+          "0110",
+          "1000",
+          "1111"
+        ],
+        ' ': [
+          "0000",
+          "0000",
+          "0000",
+          "0000",
+          "0000"
+        ]
+      };
+      
+      fill(255); // Beyaz piksel yazı rengi
+      noStroke();
+      
+      // Her harfi sırayla çiz
+      for (let i = 0; i < text.length; i++) {
+        const char = text.charAt(i);
+        const pattern = pixelChars[char] || pixelChars[' ']; // Eksik karakterler için boşluk kullan
+        
+        // Harfi oluşturan pikselleri çiz
+        for (let row = 0; row < pattern.length; row++) {
+          for (let col = 0; col < pattern[row].length; col++) {
+            if (pattern[row][col] === '1') {
+              rect(x + i * spacing + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+            }
+          }
+        }
+      }
+    }
+
+    // Piksel karakter sınıfı (yürüme animasyonu eklendi)
+    class PixelCharacter {
+      constructor(x, y, type = 'boy') {
+        this.x = x;
+        this.y = y;
+        this.speed = 2;
+        this.dir = p5.Vector.random2D();
+        this.color = {
+          r: random(100, 255),
+          g: random(100, 255),
+          b: random(100, 255)
+        };
+        this.size = 96; // Varsayılan daha büyük boyut
+        this.type = type; // 'boy' veya 'girl'
+        
+        // Animasyon değişkenleri
+        this.frameIndex = 0;
+        this.frameCounter = 0;
+        this.frameDelay = 8; // Her kaç framede bir animasyon karesi değişecek
+        this.isMoving = false;
+        this.lastX = x;
+        this.lastY = y;
+        
+        // Buluşma modu değişkenleri
+        this.isMeeting = false;
+        this.meetingSpeed = 3; // Buluşmada daha hızlı hareket et
+        this.hasMet = false; // Buluşma gerçekleşti mi?
+        this.visible = true; // Karakter görünür mü?
+        
+        // Mobil cihazlar için dokunma desteği
+        this.touched = false;
+        this.touchTarget = null;
+      }
+      
+      // Buluşma modunu başlat
+      startMeeting() {
+        this.isMeeting = true;
+      }
+      
+      // Buluşmanın gerçekleştiğini işaretle ve karakteri gizle
+      meet() {
+        this.hasMet = true;
+        // Karakter kademeli olarak kaybolacak
+        setTimeout(() => {
+          this.visible = false;
+        }, 1000); // 1 saniye sonra kaybolsun
+      }
+      
+      // Dokunma hedefine doğru hareket et (mobil cihazlar için)
+      moveToTouchTarget() {
+        if (this.touchTarget) {
+          let toTarget = createVector(this.touchTarget.x - this.x, this.touchTarget.y - this.y);
+          let distToTarget = toTarget.mag();
+          
+          if (distToTarget > 5) {
+            toTarget.normalize();
+            this.dir = toTarget;
+            this.x += this.dir.x * this.speed * 1.5; // Dokunmada biraz daha hızlı hareket et
+            this.y += this.dir.y * this.speed * 1.5;
+            return true; // Hala hareket ediyor
+          } else {
+            this.touchTarget = null; // Hedefe ulaştık
+            return false; // Hareket tamamlandı
+          }
+        }
+        return false;
+      }
+      
+      update() {
+        // Karakter buluşmuşsa artık güncelleme yapma
+        if (this.hasMet) return;
+        
+        // Önceki konumu kaydet
+        this.lastX = this.x;
+        this.lastY = this.y;
+        
+        // Dokunma hedefi varsa, ona doğru hareket et
+        let isMovingToTouch = this.moveToTouchTarget();
+        
+        // Eğer dokunma hedefine hareket etmiyorsa, normal davranışı uygula
+        if (!isMovingToTouch) {
+          if (this.isMeeting) {
+            // Buluşma modunda, ekranın merkezine doğru hareket et
+            let centerX = width / 2;
+            let centerY = height / 2;
+            
+            // Merkeze doğru yönü hesapla
+            let toCenter = createVector(centerX - this.x, centerY - this.y);
+            let distToCenter = toCenter.mag();
+            
+            if (distToCenter > 5) { // Merkeze çok yakın değilse hareket et
+              toCenter.normalize();
+              this.dir = toCenter;
+              this.x += this.dir.x * this.meetingSpeed;
+              this.y += this.dir.y * this.meetingSpeed;
+            } else {
+              // Merkeze ulaştık, hareketi durdur
+              this.isMoving = false;
+            }
+          } else {
+            // Normal rastgele hareket
+            if (random(1) < 0.02) {
+              this.dir = p5.Vector.random2D();
+            }
+            
+            this.x += this.dir.x * this.speed;
+            this.y += this.dir.y * this.speed;
+            
+            // Ekran dışına çıkmamaları için konumlarını sınırla
+            this.x = constrain(this.x, 0, width);
+            this.y = constrain(this.y, 0, height);
+          }
+        }
+        
+        // Karakter hareket ediyor mu?
+        this.isMoving = (abs(this.x - this.lastX) > 0.1 || abs(this.y - this.lastY) > 0.1);
+        
+        // Hareket ediyorsa animasyon karesini güncelle
+        if (this.isMoving) {
+          this.frameCounter++;
+          if (this.frameCounter >= this.frameDelay) {
+            this.frameCounter = 0;
+            this.frameIndex = (this.frameIndex + 1) % this.getFrameCount();
+          }
+        } else {
+          // Hareketsizse ilk kareyi göster
+          this.frameIndex = 0;
+        }
+      }
+      
+      getFrameCount() {
+        return this.type === 'boy' ? boySprites.length : girlSprites.length;
+      }
+      
+      getCurrentFrame() {
+        if (this.type === 'boy') {
+          return boySprites[this.frameIndex % boySprites.length];
+        } else {
+          return girlSprites[this.frameIndex % girlSprites.length];
+        }
+      }
+      
+      display() {
+        // Karakter görünmez olmuşsa çizme
+        if (!this.visible) return;
+        
+        // Buluşma gerçekleştiyse saydamlığı azalt
+        if (this.hasMet) {
+          push();
+          tint(255, map(frameCount % 30, 0, 30, 255, 0)); // Yanıp sönerek kaybol
+        }
+        
+        let currentFrame = this.getCurrentFrame();
+        
+        if (currentFrame) {
+          push();
+          imageMode(CENTER);
+          
+          // Karakterin yönüne göre ters çevirme
+          let facingLeft = this.dir.x < 0;
+          
+          translate(this.x, this.y);
+          if (facingLeft) scale(-1, 1); // Karakter sola bakıyorsa ters çevir
+          
+          tint(this.color.r, this.color.g, this.color.b);
+          image(currentFrame, 0, 0, this.size, this.size);
+          
+          noTint();
+          pop();
+        } else {
+          // Yedek olarak basit karakter çiz
+          fill(this.color.r, this.color.g, this.color.b);
+          noStroke();
+          rect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+          
+          // Göz detayları
+          fill(0);
+          rect(this.x - this.size*0.3, this.y - this.size*0.2, this.size*0.2, this.size*0.2);
+          rect(this.x + this.size*0.1, this.y - this.size*0.2, this.size*0.2, this.size*0.2);
+        }
+        
+        if (this.hasMet) {
+          pop();
+        }
+      }
+    }
+
+    // Öpüşme Animasyonu sınıfı - Özel imgeler kullanıyoruz
+    class KissAnimation {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.frame = 0;
+        this.maxFrames = 30; // Animasyon süresi
+        this.size = 40;
+        this.alpha = 255;
+        this.isPermanent = false; // Final buluşma için sürekli animasyon
+        this.rotation = 0; // Rotasyon açısı
+      }
+      
+      update() {
+        this.frame++;
+        
+        // Eğer kalıcı animasyonsa
+        if (this.isPermanent) {
+          // Boyutu nefes alıp verir gibi değiştir (daha yumuşak)
+          this.size = 200 + sin(frameCount * 0.03) * 20; // Daha yavaş nefes alma
+          
+          // Çok az rotasyon ekle (daha canlı görünüm için)
+          this.rotation = sin(frameCount * 0.01) * 0.05;
+          return true; // Her zaman aktif kal
+        }
+        
+        // Normal animasyon için
+        if (this.frame > this.maxFrames / 2) {
+          this.alpha = map(this.frame, this.maxFrames / 2, this.maxFrames, 255, 0);
+        }
+        
+        return this.frame < this.maxFrames; // Animasyon devam ediyor mu?
+      }
+      
+      display() {
+        if (heartImages.length > 0) {
+          push();
+          imageMode(CENTER);
+          tint(255, this.alpha);
+          
+          // Daha temiz görünüm için translate ve rotate kullan
+          translate(this.x, this.y);
+          rotate(this.rotation);
+          
+          // Doğrudan indeks 0'ı kullan (birden çok frame yerine)
+          let heartImg = heartImages[0];
+          if (heartImg) {
+            image(heartImg, 0, 0, this.size, this.size);
+            
+            // Ek küçük kalpler (yalnızca kalıcı olmayan animasyonlar için)
+            if (!this.isPermanent && this.frame % 5 == 0 && this.frame < this.maxFrames / 1.5) {
+              for (let i = 0; i < 2; i++) { // Daha az sayıda küçük kalp
+                let smallSize = random(15, 25);
+                push();
+                translate(random(-20, 20), random(-20, 20));
+                image(heartImg, 0, 0, smallSize, smallSize);
+                pop();
+              }
+            }
+          }
+          
+          noTint();
+          pop();
+        } else {
+          // Görseller yoksa çizimle göster
+          push();
+          translate(this.x, this.y);
+          
+          // Ana kalp
+          fill(255, 0, 100, this.alpha);
+          drawHeart(0, 0, this.size/2);
+          
+          // Küçük kalpler
+          if (this.frame % 5 == 0 && this.frame < this.maxFrames / 1.5) {
+            fill(255, 0, 100, 150);
+            drawHeart(random(-10, 10), random(-10, 10), random(5, 8));
+          }
+          
+          pop();
+        }
+      }
+    }
+
+    // Karakterlerin birbirlerine yaklaşmaları durumunda "öpüşme" animasyonu
+    function checkCharacterInteractions() {
+      // Tamamlanan animasyonları kaldır
+      kissAnimations = kissAnimations.filter(anim => anim.update());
+      
+      // Tüm animasyonları çiz
+      for (let anim of kissAnimations) {
+        anim.display();
+      }
+      
+      // Merkezdeki buluşma kontrolü
+      if (shouldMeet && characters.length >= 2) {
+        // Tüm karakterlerin merkeze ulaşıp ulaşmadığını kontrol et
+        let allAtCenter = true;
+        let centerX = width/2;
+        let centerY = height/2;
+        
+        for (let c of characters) {
+          let distToCenter = dist(c.x, c.y, centerX, centerY);
+          if (distToCenter > 20) { // Merkeze yeterince yakın değilse
+            allAtCenter = false;
+            break;
+          }
+        }
+        
+        // Tüm karakterler merkezdeyse büyük öpüşme animasyonu başlat
+        if (allAtCenter && !characters[0].hasMet) {
+          // Karakterlerin buluştuğunu işaretle
+          for (let c of characters) {
+            c.meet();
+          }
+          
+          // Büyük ve kalıcı bir öpüşme animasyonu başlat
+          let bigKiss = new KissAnimation(centerX, centerY);
+          bigKiss.size = 200; // Daha büyük
+          bigKiss.maxFrames = 120; // Daha uzun süreli
+          bigKiss.isPermanent = true; // Sürekli gösterilecek
+          bigKiss.alpha = 255; // Her zaman tam görünür
+          kissAnimations = []; // Önceki tüm animasyonları temizle
+          kissAnimations.push(bigKiss);
+          
+          // Arka planı parlat (parlama efekti)
+          background(255, 200, 220, 150);
+        }
+      }
+      
+      // Normal etkileşimler
+      for (let i = 0; i < characters.length; i++) {
+        // Karakter buluşma modundaysa, normal etkileşimleri atla
+        if (characters[i].isMeeting) continue;
+        
+        for (let j = i + 1; j < characters.length; j++) {
+          let d = dist(characters[i].x, characters[i].y, characters[j].x, characters[j].y);
+          if (d < 25) { // Etkileşim mesafesi
+            // İki karakter arasındaki orta nokta
+            let midX = (characters[i].x + characters[j].x) / 2;
+            let midY = (characters[i].y + characters[j].y) / 2;
+            
+            // Yeni bir öpüşme animasyonu başlat (belirli aralıklarla)
+            if (frameCount % 15 == 0) {
+              kissAnimations.push(new KissAnimation(midX, midY));
+            }
+            
+            // Karakterleri birbirlerine doğru yönlendir
+            characters[i].dir = p5.Vector.sub(createVector(characters[j].x, characters[j].y), 
+                                             createVector(characters[i].x, characters[i].y)).normalize();
+            characters[j].dir = p5.Vector.sub(createVector(characters[i].x, characters[i].y), 
+                                             createVector(characters[j].x, characters[j].y)).normalize();
+          }
+        }
+      }
+    }
+    
+    // Kalp çizim fonksiyonu (geliştirilmiş)
+    function drawHeart(x, y, size) {
+      push();
+      translate(x, y);
+      beginShape();
+      for (let a = 0; a < TWO_PI; a += 0.01) {
+        let r = size * (1 - sin(a) * sqrt(abs(cos(a))) / (sin(a) + 1.4));
+        let nx = r * cos(a);
+        let ny = r * sin(a);
+        vertex(nx, ny);
+      }
+      endShape(CLOSE);
+      pop();
+    }
+
+    // Mobil cihazlar için dokunma olayları
+    function touchStarted() {
+      // Intro ekranında dokunma olayı
+      if (showIntro) {
+        showIntro = false;
+        return false;
+      }
+      
+      // Karakterleri dokunma noktasına yönlendir
+      if (!shouldMeet) { // Buluşma modunda değilse
+        // En yakın karakteri bul ve dokunulan yere hareket ettir
+        let closestChar = null;
+        let minDist = Infinity;
+        
+        for (let c of characters) {
+          let d = dist(c.x, c.y, mouseX, mouseY);
+          if (d < minDist) {
+            minDist = d;
+            closestChar = c;
+          }
+        }
+        
+        // Eğer bir karakter seçildiyse, hedefi belirle
+        if (closestChar) {
+          closestChar.touched = true;
+          closestChar.touchTarget = createVector(mouseX, mouseY);
+        }
+      }
+      
+      return false; // Varsayılan işlemi engelleme
+    }
+    
+    // Cihaz yönlendirmesi değiştiğinde boyutları ayarla
+    function orientationChanged() {
+      resizeCanvas(windowWidth, windowHeight);
+      // Karakter konumlarını yeni ekran boyutuna göre güncelle
+      if (characters.length >= 2) {
+        characters[0].x = width/2 - 150;
+        characters[0].y = height/2;
+        characters[1].x = width/2 + 150;
+        characters[1].y = height/2;
+      }
+    }
+    
+    // Tarayıcı yeniden boyutlandırıldığında canvas boyutunu güncelle
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+      orientationChanged();
+    }
+  </script>
+</body>
+</html>
