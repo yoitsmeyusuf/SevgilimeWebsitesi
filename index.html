@@ -85,7 +85,7 @@
         
         // Eğer animasyon kareleri yüklenemezse, varsayılan resimler yükle
         if (boySprites.length === 0) boySprites.push(loadImage('assets/boy.png'));
-        if (girlSprites.length === 0) girlSprites.push(loadImage('assets/Girl.png')); // This was loading into boySprites array by mistake
+        if (girlSprites.length === 0) boySprites.push(loadImage('assets/Girl.png')); // This was loading into boySprites array by mistake
         
         // Kalp animasyonu için görseller - Yükleme yöntemini geliştir
         heartImages = [];
@@ -115,6 +115,14 @@
     let meetingTimer = 0;
     let shouldMeet = false;
 
+    // Hareket alanı için sınırlar
+    let movementArea = {
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0
+    };
+
     function setup() {
       // Canvas boyutunu buradan ayarlayabilirsiniz (şu an tam pencere boyutu)
       createCanvas(windowWidth, windowHeight);
@@ -123,14 +131,31 @@
       // Arka plan için responsive boyutları hesapla
       calculateResponsiveBackground();
       
-      // Sadece iki karakter oluştur - erkek ve kız
-      // Erkek karakter
-      let boy = new PixelCharacter(width/2 - 150, height/2, 'boy');
-      boy.size = 128; // Daha büyük karakter boyutu
+      // Hareket alanını belirle - ekranın ortasında daha küçük bir alan
+      const movementAreaSize = min(width, height) * 0.7; // Ekranın %70'i kadar
+      movementArea = {
+        x: width/2 - movementAreaSize/2,
+        y: height/2 - movementAreaSize/2,
+        width: movementAreaSize,
+        height: movementAreaSize
+      };
       
-      // Kız karakter
-      let girl = new PixelCharacter(width/2 + 150, height/2, 'girl');
-      girl.size = 128; // Daha büyük karakter boyutu
+      // Sadece iki karakter oluştur - erkek ve kız
+      // Erkek karakter - hareket alanının içinde başlat
+      let boy = new PixelCharacter(
+        movementArea.x + movementArea.width * 0.25, 
+        movementArea.y + movementArea.height/2, 
+        'boy'
+      );
+      boy.size = 128;
+      
+      // Kız karakter - hareket alanının içinde başlat
+      let girl = new PixelCharacter(
+        movementArea.x + movementArea.width * 0.75, 
+        movementArea.y + movementArea.height/2, 
+        'girl'
+      );
+      girl.size = 128;
       
       // Karakterleri diziye ekle
       characters.push(boy);
@@ -167,6 +192,16 @@
       } else {
         background(0);
       }
+      
+      // Remove the movement area visualization completely
+      // Or if you want it very subtle, uncomment the next lines with a lower alpha value (e.g., 10)
+      /*
+      noFill();
+      stroke(255, 255, 255, 10); // Change 50 to 10 for very subtle borders
+      strokeWeight(1); // Thinner line
+      rect(movementArea.x, movementArea.y, movementArea.width, movementArea.height);
+      noStroke();
+      */
       
       if (showIntro) {
         drawIntro();
@@ -453,11 +488,7 @@
         this.y = y;
         this.speed = 2;
         this.dir = p5.Vector.random2D();
-        this.color = {
-          r: random(100, 255),
-          g: random(100, 255),
-          b: random(100, 255)
-        };
+
         this.size = 96; // Varsayılan daha büyük boyut
         this.type = type; // 'boy' veya 'girl'
         
@@ -497,6 +528,14 @@
       // Dokunma hedefine doğru hareket et (mobil cihazlar için)
       moveToTouchTarget() {
         if (this.touchTarget) {
+          // Hedefi hareket alanı içinde sınırla
+          this.touchTarget.x = constrain(this.touchTarget.x, 
+                                        movementArea.x + this.size/4, 
+                                        movementArea.x + movementArea.width - this.size/4);
+          this.touchTarget.y = constrain(this.touchTarget.y, 
+                                        movementArea.y + this.size/4, 
+                                        movementArea.y + movementArea.height - this.size/4);
+          
           let toTarget = createVector(this.touchTarget.x - this.x, this.touchTarget.y - this.y);
           let distToTarget = toTarget.mag();
           
@@ -554,9 +593,17 @@
             this.x += this.dir.x * this.speed;
             this.y += this.dir.y * this.speed;
             
-            // Ekran dışına çıkmamaları için konumlarını sınırla
-            this.x = constrain(this.x, 0, width);
-            this.y = constrain(this.y, 0, height);
+            // Ekran dışına değil, hareket alanı sınırlarına göre konumlarını sınırla
+            this.x = constrain(this.x, movementArea.x + this.size/4, movementArea.x + movementArea.width - this.size/4);
+            this.y = constrain(this.y, movementArea.y + this.size/4, movementArea.y + movementArea.height - this.size/4);
+            
+            // Eğer sınırlara çarparsa yön değiştir
+            if (this.x <= movementArea.x + this.size/4 || this.x >= movementArea.x + movementArea.width - this.size/4) {
+              this.dir.x *= -1;
+            }
+            if (this.y <= movementArea.y + this.size/4 || this.y >= movementArea.y + movementArea.height - this.size/4) {
+              this.dir.y *= -1;
+            }
           }
         }
         
@@ -610,14 +657,14 @@
           translate(this.x, this.y);
           if (facingLeft) scale(-1, 1); // Karakter sola bakıyorsa ters çevir
           
-          tint(this.color.r, this.color.g, this.color.b);
+         
           image(currentFrame, 0, 0, this.size, this.size);
           
           noTint();
           pop();
         } else {
           // Yedek olarak basit karakter çiz
-          fill(this.color.r, this.color.g, this.color.b);
+      
           noStroke();
           rect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
           
@@ -839,12 +886,22 @@
     // Cihaz yönlendirmesi değiştiğinde boyutları ayarla
     function orientationChanged() {
       resizeCanvas(windowWidth, windowHeight);
-      // Karakter konumlarını yeni ekran boyutuna göre güncelle
+      
+      // Hareket alanını da güncelle
+      const movementAreaSize = min(width, height) * 0.7;
+      movementArea = {
+        x: width/2 - movementAreaSize/2,
+        y: height/2 - movementAreaSize/2,
+        width: movementAreaSize,
+        height: movementAreaSize
+      };
+      
+      // Karakterleri hareket alanının içinde konumlandır
       if (characters.length >= 2) {
-        characters[0].x = width/2 - 150;
-        characters[0].y = height/2;
-        characters[1].x = width/2 + 150;
-        characters[1].y = height/2;
+        characters[0].x = movementArea.x + movementArea.width * 0.25;
+        characters[0].y = movementArea.y + movementArea.height/2;
+        characters[1].x = movementArea.x + movementArea.width * 0.75;
+        characters[1].y = movementArea.y + movementArea.height/2;
       }
     }
     
